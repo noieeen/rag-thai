@@ -1,8 +1,14 @@
 import numpy as np
 from typing import List, Tuple, Optional
 import logging
+from rank_bm25 import BM25Okapi
+import pythainlp
 
 logger = logging.getLogger(__name__)
+
+
+bm25_corpus = []
+bm25_index = None
 
 class VectorStoreService:
     """
@@ -126,3 +132,8 @@ class VectorStoreService:
                 **(chunk.metadata if hasattr(chunk, "metadata") else {})
             }
             self.add(chunk.embedding, metadata)
+    
+    def build_bm25_index(self):
+        tokenized_corpus = [pythainlp.word_tokenize(chunk["text"]) for chunk in self.metadatas]
+        self.bm25_index = BM25Okapi(tokenized_corpus)
+        self.bm25_corpus = self.metadatas
