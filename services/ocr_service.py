@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 from pythainlp.spell import correct
+import asyncio
 
 from core.config import settings
 
@@ -103,7 +104,7 @@ class OCRService:
         img_array = np.frombuffer(img_data, dtype=np.uint8)
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         
-        return self._perform_ocr(img)
+        return self._perform_ocr_sync(img)
     
     def _ocr_entire_pdf(self, pdf_path: str) -> str:
         """Perform OCR on entire PDF by converting to images"""
@@ -134,7 +135,7 @@ class OCRService:
             # Preprocess image for better OCR
             img = self._preprocess_image(img)
             
-            return self._perform_ocr(img)
+            return self._perform_ocr_sync(img)
         
         return await asyncio.get_event_loop().run_in_executor(
             self.executor, _process_image
@@ -159,7 +160,7 @@ class OCRService:
         
         return img
     
-    def _perform_ocr(self, img: np.ndarray) -> str:
+    def _perform_ocr_sync(self, img: np.ndarray) -> str:
         """Perform OCR on preprocessed image"""
         self._initialize_reader()
         
@@ -182,6 +183,19 @@ class OCRService:
             logger.error(f"OCR processing failed: {e}")
             return ""
     
+    async def perform_ocr(self, img: np.ndarray, preprocess: bool = True) -> str:
+        """
+        Async OCR on an image array.
+        Runs heavy computation in a thread pool for true async compatibility.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self._perform_ocr_sync,
+            img,
+            preprocess
+        )
+        
     async def _read_text_file(self, file_path: str) -> str:
         """Read text from plain text file"""
         logger.info(f"Reading text file: {file_path}")
