@@ -104,6 +104,7 @@ class VectorStoreService:
             metadata = {
                 "doc_id": doc_id,
                 "filename": filename,
+                "text": chunk.text,
                 **(chunk.metadata if hasattr(chunk, "metadata") else {})
             }
             self.add(chunk.embedding, metadata)
