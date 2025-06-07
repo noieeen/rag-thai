@@ -1,16 +1,16 @@
 import os
 from pathlib import Path
 
-def is_valid_file(file_path: str, allowed_extensions=None) -> bool:
-    """
-    Check if the file exists and has an allowed extension.
-    """
-    if not os.path.isfile(file_path):
-        return False
-    if allowed_extensions:
-        ext = Path(file_path).suffix.lower()
-        return ext in [e.lower() for e in allowed_extensions]
-    return True
+# def is_valid_file(file_path: str, allowed_extensions=None) -> bool:
+#     """
+#     Check if the file exists and has an allowed extension.
+#     """
+#     if not os.path.isfile(file_path):
+#         return False
+#     if allowed_extensions:
+#         ext = Path(file_path).suffix.lower()
+#         return ext in [e.lower() for e in allowed_extensions]
+#     return True
 
 def is_non_empty_string(value: str) -> bool:
     """
@@ -24,8 +24,12 @@ def is_valid_directory(directory: str) -> bool:
     """
     return os.path.isdir(directory)
 
-def validate_file_type(file_path: str, allowed_extensions=None) -> bool:
+def validate_file_type(file_name: str, allowed_extensions=None) -> bool:
     """
-    Validate that the file exists and has an allowed extension.
+    Validate that the file has an allowed extension.
     """
-    return is_valid_file(file_path, allowed_extensions)
+    from core.config import settings
+    if allowed_extensions is None:
+        allowed_extensions = settings.ALLOWED_EXTENSIONS
+    ext = Path(file_name).suffix.lower()
+    return ext in [e.lower() for e in allowed_extensions]

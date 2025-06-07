@@ -116,8 +116,8 @@ async def upload_document(
 ):
     """Upload and process a document (PDF, image, or text file)"""
     
-    contents = await file.read()
-    print(f"Received file: {file.filename}, size: {len(contents)} bytes, type: {file.content_type}")
+    # contents = await file.read()
+    # print(f"Received file: {file.filename}, size: {len(contents)} bytes, type: {file.content_type}")
     
     # Validate file
     if not validate_file_type(file.filename):
