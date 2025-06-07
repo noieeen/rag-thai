@@ -139,7 +139,7 @@ async def upload_document(
     
     try:
         # Save uploaded file temporarily
-        temp_file_path = await save_upload_file(file)
+        temp_file_path = await save_upload_file(file,"temp/" + file.filename)
         
         # Start background processing
         background_tasks.add_task(
