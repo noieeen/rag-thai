@@ -33,6 +33,8 @@ class OCRService:
     
     async def extract_text(self, file_path: str) -> str:
         """Extract text from file (PDF or image)"""
+        
+        print(f"Extracting text from file: {file_path}")
         file_path = Path(file_path)
         
         if not file_path.exists():
@@ -50,6 +52,7 @@ class OCRService:
             raise ValueError(f"Unsupported file type: {file_extension}")
     
     async def _extract_from_pdf(self, pdf_path: str) -> str:
+        print(f"Extracting text from PDF: {pdf_path}")
         """Extract text from PDF file"""
         logger.info(f"Extracting text from PDF: {pdf_path}")
         

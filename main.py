@@ -137,10 +137,13 @@ async def upload_document(
         message="File uploaded, starting processing..."
     )
     
-    try:
+    try:  
+
         # Save uploaded file temporarily
-        temp_file_path = await save_upload_file(file,"temp/" + file.filename)
+        temp_file_path = await save_upload_file(file,"uploads/" + file.filename)
         
+        print(f"\nDocument {doc_id} processing before started in background")
+
         # Start background processing
         background_tasks.add_task(
             process_document_background,
@@ -151,6 +154,10 @@ async def upload_document(
             chunk_size,
             overlap
         )
+        
+        
+        print(f"\nDocument {doc_id} processing started in background")
+
         
         return DocumentResponse(
             document_id=doc_id,
@@ -177,7 +184,7 @@ async def process_document_background(
     overlap: int
 ):
     """Background task for document processing"""
-    
+    print(f"Processing document {doc_id} at {file_path}")
     try:
         # Update status
         processing_status[doc_id].status = "processing"
