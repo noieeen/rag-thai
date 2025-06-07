@@ -30,16 +30,44 @@ class ChromaVectorStore:
         self.client = chromadb.HttpClient(host=host, port=port)
         self.collection = self.client.get_or_create_collection(collection_name)
 
-    def add(self, embedding, metadata, id):
+    def add(self, embedding, metadata, id, where=None):
+        """
+        Add an embedding to the ChromaDB collection.
+        """
         self.collection.add(
             embeddings=[embedding],
             metadatas=[metadata],
             ids=[id]
         )
 
-    def search(self, query_embedding, top_k=5):
+    def search(self, query_embedding, top_k=5, filter_doc_ids=None, threshold=0.0, where=None, include=None):
+        """
+        Search ChromaDB collection for similar items.
+        Supports filter_doc_ids (list of doc_id), threshold (similarity), where clause, and include options.
+        """
+        where_clause = {}
+        if filter_doc_ids:
+            where_clause['doc_id'] = {'$in': filter_doc_ids}
+        if where:
+            where_clause.update(where)
+        if not include:
+            include = ["metadatas", "distances"]
+
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k
+            n_results=top_k,
+            where=where_clause,
+            include=include
         )
-        return results
+
+        filtered = []
+        metadatas = results.get('metadatas', [[]])[0]
+        distances = results.get('distances', [[]])[0]
+        for metadata, distance in zip(metadatas, distances):
+            similarity = 1.0 - distance
+            if similarity >= threshold:
+                filtered.append({
+                    "metadata": metadata,
+                    "similarity": similarity
+                })
+        return filtered

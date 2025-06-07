@@ -28,12 +28,18 @@ class VectorStoreService:
             logger.debug(f"Added vector with metadata: {metadata}")
         logger.debug(f"Added vector. Total count: {len(self.vectors)}")
 
-    def search(self, query_embedding: np.ndarray, top_k: int = 5) -> List[Tuple[dict, float]]:
+    async def search(
+        self,
+        query_embedding: np.ndarray,
+        top_k: int = 5,
+        threshold: float = 0.0,
+        filter_doc_ids: Optional[List[str]] = None
+    ) -> List[Tuple[dict, float]]:
         """
         Search for the top_k most similar embeddings to the query_embedding.
+        Optionally filter by similarity threshold and document IDs.
         Returns a list of (metadata, similarity) tuples.
         """
-        
         print(f"Searching for top {top_k} similar vectors. | search")
         
         if not self.vectors:
@@ -43,7 +49,10 @@ class VectorStoreService:
         similarities = []
         for idx, emb in enumerate(self.vectors):
             sim = self._cosine_similarity(query_embedding, emb)
-            similarities.append((idx, sim))
+            meta = self.metadatas[idx]
+            if sim >= threshold:
+                if filter_doc_ids is None or meta.get("doc_id") in filter_doc_ids:
+                    similarities.append((idx, sim))
 
         # Sort by similarity descending
         similarities.sort(key=lambda x: x[1], reverse=True)

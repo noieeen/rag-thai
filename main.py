@@ -24,6 +24,7 @@ from models.schemas import (
 )
 from core.config import settings
 from core.database import get_connection
+# from core.chromadb import get_connection
 from utils.file_utils import save_upload_file, cleanup_temp_file
 from utils.validators import validate_file_type
 
@@ -191,6 +192,7 @@ async def process_document_background(
         processing_status[doc_id].progress = 10
         processing_status[doc_id].message = "Extracting text from document..."
         
+        logger.info(f"Processing document {doc_id} | progress: {processing_status[doc_id].progress}%")
         # Extract text using OCR
         if extract_text:
             print(f"Extracting text from file | process_document_background: {file_path}")
@@ -203,6 +205,7 @@ async def process_document_background(
         processing_status[doc_id].progress = 30
         processing_status[doc_id].message = "Processing Thai text..."
         
+        logger.info(f"Processing document {doc_id} | progress: {processing_status[doc_id].progress}%")
         # Process Thai text
         # processed_text = await text_processor.process_text(extracted_text)
         processed_text = text_processor.process_text(extracted_text)
@@ -210,6 +213,7 @@ async def process_document_background(
         processing_status[doc_id].progress = 50
         processing_status[doc_id].message = "Creating text chunks..."
         
+        logger.info(f"Processing document {doc_id} | progress: {processing_status[doc_id].progress}%")
         # Create chunks
         chunks = await text_processor.create_chunks(
             processed_text, 
@@ -220,6 +224,7 @@ async def process_document_background(
         processing_status[doc_id].progress = 70
         processing_status[doc_id].message = "Generating embeddings..."
         
+        logger.info(f"Processing document {doc_id} | progress: {processing_status[doc_id].progress}%")
         # Generate embeddings for chunks
         chunk_embeddings = []
         for i, chunk in enumerate(chunks):
@@ -241,6 +246,8 @@ async def process_document_background(
         processing_status[doc_id].status = "completed"
         processing_status[doc_id].progress = 100
         processing_status[doc_id].message = "Document processed successfully"
+        
+        logger.info(f"Processing document {doc_id} | progress: {processing_status[doc_id].progress}%")
         
         logger.info(f"Document {doc_id} processed successfully")
         
@@ -343,13 +350,14 @@ async def search_documents(request: SearchRequest):
         
         logger.info(f"Generated embedding for query: {query_embedding[:10]}... (truncated)")
         
+        logger.info(f"Searching in vector store for query: {request}")
         # Search in vector store
         results = await vector_store.search(
             query_embedding=query_embedding,
-            limit=request.limit,
+            top_k=request.limit,
             threshold=request.threshold,
             filter_doc_ids=request.document_ids
-        )
+)
         
         return SearchResponse(
             query=request.query,

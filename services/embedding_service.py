@@ -1,18 +1,17 @@
 import numpy as np
 from typing import List, Any
 import logging
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """
-    Service for generating and managing text embeddings.
-    Replace the dummy implementation with a real embedding model as needed.
+    Service for generating and managing text embeddings using sentence-transformers.
     """
-
     def __init__(self):
-        # Initialize your embedding model here if needed
-        logger.info("EmbeddingService initialized.")
+        self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        logger.info("EmbeddingService initialized with sentence-transformers.")
 
     async def initialize(self):
         """
@@ -24,21 +23,16 @@ class EmbeddingService:
 
     def embed_text(self, text: str) -> np.ndarray:
         """
-        Generate an embedding for a single text string.
-        Replace this dummy implementation with a real embedding model.
+        Generate an embedding for a single text string using sentence-transformers.
         """
-        logger.debug(f"Generating embedding for text: {text[:30]}...")
-        # Dummy: returns a fixed-size random vector for demonstration
-        np.random.seed(abs(hash(text)) % (2**32))
-        return np.random.rand(384)
+        embedding = self.model.encode(text)
+        return np.array(embedding)
 
     async def generate_embedding(self, text: str) -> np.ndarray:
         """
         Async wrapper to generate an embedding for a single text string.
         """
-        
         print(f"Generating embedding for text: {text}... | generate_embedding")
-        
         return self.embed_text(text)
 
     def embed_texts(self, texts: List[str]) -> List[np.ndarray]:
