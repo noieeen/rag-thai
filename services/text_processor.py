@@ -33,3 +33,10 @@ class TextProcessor:
         """
         # Split by whitespace for now
         return text.split()
+
+    def process_text(self, text: str) -> List[str]:
+        """
+        Clean and split text into sentences.
+        """
+        cleaned = self.clean_text(text)
+        return self.split_sentences(cleaned)

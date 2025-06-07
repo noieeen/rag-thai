@@ -74,3 +74,6 @@ dmypy.json
 
 # macOS
 .DS_Store
+
+#uploads files
+uploads/*

@@ -34,7 +34,7 @@ class OCRService:
     async def extract_text(self, file_path: str) -> str:
         """Extract text from file (PDF or image)"""
         
-        print(f"Extracting text from file: {file_path}")
+        print(f"Extracting text from file | extract_text: {file_path}")
         file_path = Path(file_path)
         
         if not file_path.exists():
@@ -52,13 +52,14 @@ class OCRService:
             raise ValueError(f"Unsupported file type: {file_extension}")
     
     async def _extract_from_pdf(self, pdf_path: str) -> str:
-        print(f"Extracting text from PDF: {pdf_path}")
+        print(f"Extracting text from PDF | _extract_from_pdf: {pdf_path}")
         """Extract text from PDF file"""
         logger.info(f"Extracting text from PDF: {pdf_path}")
         
         def _process_pdf():
             extracted_text = []
             
+            print(f"Processing PDF | _process_pdf: {pdf_path}")
             # Try to extract text directly first (for text-based PDFs)
             try:
                 doc = fitz.open(pdf_path)
@@ -77,6 +78,8 @@ class OCRService:
                 
                 doc.close()
             
+                print(f"Extracted {len(extracted_text)} pages of text from PDF")
+                
             except Exception as e:
                 logger.error(f"Error processing PDF: {e}")
                 # Fallback to full OCR processing
@@ -161,7 +164,7 @@ class OCRService:
         
         try:
             # Perform OCR
-            results = self.reader.readtext(img)
+            results = self.reader.readtext(img, detail=1)
             
             # Extract text with confidence filtering
             extracted_text = []
@@ -225,6 +228,8 @@ class OCRService:
         else:
             # For PDF and text files, return text with dummy confidence
             text = await self.extract_text(file_path)
+            print("Extracted Text:")
+            print(text)
             return text, [1.0]  # Assume perfect confidence for non-OCR text
     
     def cleanup(self):

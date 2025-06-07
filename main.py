@@ -193,6 +193,7 @@ async def process_document_background(
         
         # Extract text using OCR
         if extract_text:
+            print(f"Extracting text from file | process_document_background: {file_path}")
             extracted_text = await ocr_service.extract_text(file_path)
         else:
             # For text files, read directly

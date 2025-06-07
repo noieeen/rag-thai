@@ -1,5 +1,5 @@
 # FastAPI and server
-fastapi==0.104.1
+fastapi==0.105.0
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
@@ -8,9 +8,9 @@ pythainlp==4.0.2
 # pyicu
 
 # OCR
-easyocr==1.7.0
+easyocr==1.7.1
 opencv-python==4.8.1.78
-Pillow==10.1.0
+Pillow==11.2.1
 
 # PDF processing
 PyPDF2==3.0.1
@@ -46,3 +46,5 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 black==23.11.0
 flake8==6.1.0
+
+scikit-image==0.20.0
