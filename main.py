@@ -7,6 +7,8 @@ import asyncio
 import os
 from pathlib import Path
 import tempfile
+import numpy as np
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -282,7 +284,11 @@ async def search_documents(request: SearchRequest):
         
         # Generate query embedding
         # Ensure the input is a single string for the embedding model
-        query_embedding = await embedding_service.generate_embedding(" ".join(processed_query))
+        #query_embedding = await embedding_service.generate_embedding(" ".join(processed_query))
+        
+        ## Test
+        embeddings = embedding_service.embed_texts(processed_query)
+        query_embedding = np.mean(embeddings, axis=0)
         
         logger.info(f"Generated embedding for query: {query_embedding[:10]}... (truncated)")
         

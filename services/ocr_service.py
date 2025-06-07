@@ -9,6 +9,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
+from pythainlp.spell import correct
 
 from core.config import settings
 
@@ -172,7 +173,10 @@ class OCRService:
                 if confidence > 0.5:  # Filter out low-confidence results
                     extracted_text.append(text)
             
-            return ' '.join(extracted_text)
+            raw_text = ' '.join(extracted_text)
+            # Clean up text
+            cleaned_text = self.correct_thai_text(raw_text)
+            return cleaned_text
             
         except Exception as e:
             logger.error(f"OCR processing failed: {e}")
@@ -238,3 +242,25 @@ class OCRService:
             self.executor.shutdown(wait=False)
             self.executor = None
         self.reader = None
+    
+    def correct_thai_text(self, text: str) -> str:
+        """
+        Correct Thai text using pythainlp spell correction.
+        This function uses the pythainlp library to correct common spelling mistakes in Thai text.
+
+        Args:
+            text (str): The input Thai text to be corrected.
+        Returns:
+            str: The corrected Thai text.
+        -----------
+        Example:
+            >>> ocr_service = OCRService()
+            >>> corrected_text = ocr_service.correct_thai_text("สวัสดีครับ")
+            >>> print(corrected_text)
+            "สวัสดีครับ"
+        -----------
+        """
+        
+        print(f"Correcting Thai text: {text} | correct_thai_text")
+        tokens = text.split()
+        return ' '.join([correct(token) for token in tokens])

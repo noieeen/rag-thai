@@ -64,6 +64,24 @@ class VectorStoreService:
             results.append((self.metadatas[idx], sim))
         return results
 
+    
+    # def hybrid_search(query_embedding, query_tokens):
+    #     vector_results = vector_search(...)
+    #     bm25_results = bm25_search(...)
+
+    #     # Merge by doc_id or chunk_id
+    #     combined_scores = {}
+    #     for result in vector_results:
+    #         key = result['chunk_id']
+    #         combined_scores[key] = combined_scores.get(key, 0) + 0.5 * result['score']
+
+    #     for result in bm25_results:
+    #         key = result['chunk_id']
+    #         combined_scores[key] = combined_scores.get(key, 0) + 0.5 * result['score']
+
+    #     # Return sorted
+    #     return sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+        
     @staticmethod
     def _cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
         if vec1 is None or vec2 is None:
