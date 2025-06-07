@@ -228,6 +228,7 @@ async def process_document_background(
         # Generate embeddings for chunks
         chunk_embeddings = []
         for i, chunk in enumerate(chunks):
+            print(f"Chunk {i}: {chunk.text}")
             embedding = await embedding_service.generate_embedding(chunk.text)
             chunk.embedding = embedding
             chunk_embeddings.append(chunk)
@@ -279,74 +280,9 @@ async def search_documents(request: SearchRequest):
         
         logger.info(f"Processed query: {processed_query}")
         
-        # if not processed_query:
-        #     raise HTTPException(status_code=400, detail="Query cannot be empty")
-        # logger.info(f"Generating embedding for query: {request.query}")
-        # # Validate query length
-        # if len(processed_query) < 3:
-        #     raise HTTPException(status_code=400, detail="Query must be at least 3 characters long")
-        # if len(processed_query) > 500:
-        #     raise HTTPException(status_code=400, detail="Query must not exceed 500 characters")
-        # logger.info(f"Query after processing: {processed_query}")
-        # # Check if query contains only Thai characters
-        # if not all(char in settings.THAI_CHARACTERS for char in processed_query):
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must contain only Thai characters"
-        #     )
-        # logger.info(f"Query is valid: {processed_query}")
-        # # Check if query contains any stop words
-        # if any(word in processed_query for word in settings.STOP_WORDS):
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query contains stop words"
-        #     )
-        # logger.info(f"Query does not contain stop words: {processed_query}")
-        # # Check if query contains any special characters
-        # if any(char in settings.SPECIAL_CHARACTERS for char in processed_query):
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must not contain special characters"
-        #     )
-        # logger.info(f"Query does not contain special characters: {processed_query}")
-        # # Check if query is too short
-        # if len(processed_query) < 3:
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must be at least 3 characters long"
-        #     )
-        # logger.info(f"Query length is valid: {len(processed_query)} characters")
-        # # Check if query is too long
-        # if len(processed_query) > 500:
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must not exceed 500 characters"
-        #     )
-        # logger.info(f"Query length is valid: {len(processed_query)} characters")
-        # # Check if query contains any non-Thai characters
-        # if any(char not in settings.THAI_CHARACTERS for char in processed_query):
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must contain only Thai characters"
-        #     )
-        # logger.info(f"Query contains only Thai characters: {processed_query}")
-        # # Check if query contains any non-printable characters
-        # if any(not char.isprintable() for char in processed_query):
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must not contain non-printable characters"
-        #     )
-        # logger.info(f"Query does not contain non-printable characters: {processed_query}")
-        # # Check if query contains any emojis
-        # if any(char in settings.EMOJIS for char in processed_query):
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Query must not contain emojis"
-        #     )
-        # logger.info(f"Query does not contain emojis: {processed_query}")
-        
         # Generate query embedding
-        query_embedding = await embedding_service.generate_embedding(processed_query)
+        # Ensure the input is a single string for the embedding model
+        query_embedding = await embedding_service.generate_embedding(" ".join(processed_query))
         
         logger.info(f"Generated embedding for query: {query_embedding[:10]}... (truncated)")
         
@@ -357,11 +293,19 @@ async def search_documents(request: SearchRequest):
             top_k=request.limit,
             threshold=request.threshold,
             filter_doc_ids=request.document_ids
-)
+        )
         
         return SearchResponse(
             query=request.query,
-            results=results,
+            results=[
+                {
+                    "document_id": meta["doc_id"],
+                    "chunk_id": f"{meta['doc_id']}_{meta['start']}_{meta['end']}",
+                    "text": meta.get("text", ""),
+                    "score": sim
+                }
+                for meta, sim in results
+            ],
             total_results=len(results)
         )
         

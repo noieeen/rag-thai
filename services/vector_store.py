@@ -49,6 +49,9 @@ class VectorStoreService:
         similarities = []
         for idx, emb in enumerate(self.vectors):
             sim = self._cosine_similarity(query_embedding, emb)
+            
+            ## Test
+            print(f"Similarity to chunk {idx}: {sim:.4f}")
             meta = self.metadatas[idx]
             if sim >= threshold:
                 if filter_doc_ids is None or meta.get("doc_id") in filter_doc_ids:
