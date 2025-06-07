@@ -19,6 +19,13 @@ class VectorStoreService:
         """
         self.vectors.append(embedding)
         self.metadatas.append(metadata)
+        
+        ## Try to print metadata in a more readable format
+        print(f"Added embedding with metadata | add: {metadata}")
+        if len(self.vectors) % 100 == 0:
+            logger.info(f"Added {len(self.vectors)} vectors to the store.")
+        else:
+            logger.debug(f"Added vector with metadata: {metadata}")
         logger.debug(f"Added vector. Total count: {len(self.vectors)}")
 
     def search(self, query_embedding: np.ndarray, top_k: int = 5) -> List[Tuple[dict, float]]:
@@ -26,6 +33,9 @@ class VectorStoreService:
         Search for the top_k most similar embeddings to the query_embedding.
         Returns a list of (metadata, similarity) tuples.
         """
+        
+        print(f"Searching for top {top_k} similar vectors. | search")
+        
         if not self.vectors:
             logger.warning("Vector store is empty.")
             return []
@@ -73,3 +83,15 @@ class VectorStoreService:
         List all stored metadata entries.
         """
         return list(self.metadatas)
+
+    async def store_document(self, doc_id: str, filename: str, chunk_embeddings: list):
+        """
+        Store all chunk embeddings and metadata for a document.
+        """
+        for chunk in chunk_embeddings:
+            metadata = {
+                "doc_id": doc_id,
+                "filename": filename,
+                **(chunk.metadata if hasattr(chunk, "metadata") else {})
+            }
+            self.add(chunk.embedding, metadata)

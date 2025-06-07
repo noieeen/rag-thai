@@ -204,7 +204,8 @@ async def process_document_background(
         processing_status[doc_id].message = "Processing Thai text..."
         
         # Process Thai text
-        processed_text = await text_processor.process_text(extracted_text)
+        # processed_text = await text_processor.process_text(extracted_text)
+        processed_text = text_processor.process_text(extracted_text)
         
         processing_status[doc_id].progress = 50
         processing_status[doc_id].message = "Creating text chunks..."
@@ -269,8 +270,78 @@ async def search_documents(request: SearchRequest):
         # Process the query
         processed_query = await text_processor.process_query(request.query)
         
+        logger.info(f"Processed query: {processed_query}")
+        
+        # if not processed_query:
+        #     raise HTTPException(status_code=400, detail="Query cannot be empty")
+        # logger.info(f"Generating embedding for query: {request.query}")
+        # # Validate query length
+        # if len(processed_query) < 3:
+        #     raise HTTPException(status_code=400, detail="Query must be at least 3 characters long")
+        # if len(processed_query) > 500:
+        #     raise HTTPException(status_code=400, detail="Query must not exceed 500 characters")
+        # logger.info(f"Query after processing: {processed_query}")
+        # # Check if query contains only Thai characters
+        # if not all(char in settings.THAI_CHARACTERS for char in processed_query):
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must contain only Thai characters"
+        #     )
+        # logger.info(f"Query is valid: {processed_query}")
+        # # Check if query contains any stop words
+        # if any(word in processed_query for word in settings.STOP_WORDS):
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query contains stop words"
+        #     )
+        # logger.info(f"Query does not contain stop words: {processed_query}")
+        # # Check if query contains any special characters
+        # if any(char in settings.SPECIAL_CHARACTERS for char in processed_query):
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must not contain special characters"
+        #     )
+        # logger.info(f"Query does not contain special characters: {processed_query}")
+        # # Check if query is too short
+        # if len(processed_query) < 3:
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must be at least 3 characters long"
+        #     )
+        # logger.info(f"Query length is valid: {len(processed_query)} characters")
+        # # Check if query is too long
+        # if len(processed_query) > 500:
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must not exceed 500 characters"
+        #     )
+        # logger.info(f"Query length is valid: {len(processed_query)} characters")
+        # # Check if query contains any non-Thai characters
+        # if any(char not in settings.THAI_CHARACTERS for char in processed_query):
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must contain only Thai characters"
+        #     )
+        # logger.info(f"Query contains only Thai characters: {processed_query}")
+        # # Check if query contains any non-printable characters
+        # if any(not char.isprintable() for char in processed_query):
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must not contain non-printable characters"
+        #     )
+        # logger.info(f"Query does not contain non-printable characters: {processed_query}")
+        # # Check if query contains any emojis
+        # if any(char in settings.EMOJIS for char in processed_query):
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Query must not contain emojis"
+        #     )
+        # logger.info(f"Query does not contain emojis: {processed_query}")
+        
         # Generate query embedding
         query_embedding = await embedding_service.generate_embedding(processed_query)
+        
+        logger.info(f"Generated embedding for query: {query_embedding[:10]}... (truncated)")
         
         # Search in vector store
         results = await vector_store.search(

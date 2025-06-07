@@ -32,6 +32,15 @@ class EmbeddingService:
         np.random.seed(abs(hash(text)) % (2**32))
         return np.random.rand(384)
 
+    async def generate_embedding(self, text: str) -> np.ndarray:
+        """
+        Async wrapper to generate an embedding for a single text string.
+        """
+        
+        print(f"Generating embedding for text: {text}... | generate_embedding")
+        
+        return self.embed_text(text)
+
     def embed_texts(self, texts: List[str]) -> List[np.ndarray]:
         """
         Generate embeddings for a list of text strings.
