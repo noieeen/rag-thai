@@ -229,9 +229,8 @@ async def process_document_background(
         logger.info(f"Processing document {doc_id} | progress: {processing_status[doc_id].progress}%")
         # Generate embeddings for chunks
         chunk_embeddings = []
-        for i, chunk in enumerate(chunks):
-            print(f"Chunk {i}: {chunk.text}")
-            embedding = await embedding_service.generate_embedding(chunk.text)
+        embeddings = await asyncio.gather(*[embedding_service.generate_embedding(chunk.text) for chunk in chunks])
+        for chunk, embedding in zip(chunks, embeddings):
             chunk.embedding = embedding
             chunk_embeddings.append(chunk)
             

@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str = "thai-rag-index"
     
     # Embedding Model Settings
-    EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    # EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"
     # EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"  # Alternative
     EMBEDDING_DEVICE: str = "cpu"  # or "cuda" if GPU available
     EMBEDDING_DIMENSION: int = 384  # For MiniLM model

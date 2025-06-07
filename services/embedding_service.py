@@ -2,6 +2,8 @@ import numpy as np
 from typing import List, Any
 import logging
 from sentence_transformers import SentenceTransformer
+from core.config import settings
+
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +12,7 @@ class EmbeddingService:
     Service for generating and managing text embeddings using sentence-transformers.
     """
     def __init__(self):
-        self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        self.model = SentenceTransformer(settings.EMBEDDING_MODEL)
         logger.info("EmbeddingService initialized with sentence-transformers.")
 
     async def initialize(self):
