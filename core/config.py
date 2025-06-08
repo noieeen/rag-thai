@@ -26,21 +26,22 @@ class Settings(BaseSettings):
     VECTOR_COLLECTION_NAME: str = "thai_rag_collection"
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     
-    # Pinecone settings (if using Pinecone)
-    PINECONE_API_KEY: str = ""
-    PINECONE_ENVIRONMENT: str = ""
-    PINECONE_INDEX_NAME: str = "thai-rag-index"
+    # # Pinecone settings (if using Pinecone)
+    # PINECONE_API_KEY: str = ""
+    # PINECONE_ENVIRONMENT: str = ""
+    # PINECONE_INDEX_NAME: str = "thai-rag-index"
     
     # Embedding Model Settings
     # EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"
     # EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"  # Alternative
-    EMBEDDING_DEVICE: str = "cpu"  # or "cuda" if GPU available
+    EMBEDDING_DEVICE: str = "cuda"  # PC
+    # EMBEDDING_DEVICE: str = "cpu"  # or "cuda" if GPU available ## Mac
     EMBEDDING_DIMENSION: int = 384  # For MiniLM model
     
     # OCR Settings
     OCR_LANGUAGES: List[str] = ["th", "en"]  # Thai and English
-    OCR_GPU: bool = False
+    OCR_GPU: bool = True
     
     # Text Processing Settings
     DEFAULT_CHUNK_SIZE: int = 500

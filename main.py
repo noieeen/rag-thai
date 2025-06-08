@@ -230,7 +230,7 @@ async def process_document_background(
         # Generate embeddings for chunks
         chunk_embeddings = []
         embeddings = await asyncio.gather(*[embedding_service.generate_embedding(chunk.text) for chunk in chunks])
-        for chunk, embedding in zip(chunks, embeddings):
+        for i,( chunk, embedding) in enumerate(zip(chunks, embeddings)):
             chunk.embedding = embedding
             chunk_embeddings.append(chunk)
             
@@ -331,18 +331,31 @@ async def list_documents():
         logger.error(f"Failed to list documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/documents/{doc_id}")
+async def get_document(doc_id: str):
+    """Delete a document and its chunks from vector store"""
+    
+    try:
+        doc = vector_store.get_documents(doc_id)
+        
+        return {"message": f"Document {doc}"}
+        
+    except Exception as e:
+        logger.error(f"Failed to delete document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """Delete a document and its chunks from vector store"""
     
     try:
-        await vector_store.delete_document(doc_id)
+        deleted_doc = vector_store.delete_document(doc_id)
         
         # Remove from processing status if exists
         if doc_id in processing_status:
             del processing_status[doc_id]
         
-        return {"message": f"Document {doc_id} deleted successfully"}
+        return {"message": f"Document {doc_id} : {deleted_doc} deleted successfully"}
         
     except Exception as e:
         logger.error(f"Failed to delete document {doc_id}: {e}")

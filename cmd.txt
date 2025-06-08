@@ -1,2 +1,8 @@
+## Create virtual env
+python -m venv .venv
+
+## Activate venv
+.venv\Scripts\activate
+
 uvicorn main:app --reload
 uvicorn main:app --reload --port 8888

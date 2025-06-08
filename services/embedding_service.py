@@ -3,6 +3,7 @@ from typing import List, Any
 import logging
 from sentence_transformers import SentenceTransformer
 from core.config import settings
+import torch
 
 
 logger = logging.getLogger(__name__)
@@ -12,8 +13,10 @@ class EmbeddingService:
     Service for generating and managing text embeddings using sentence-transformers.
     """
     def __init__(self):
-        self.model = SentenceTransformer(settings.EMBEDDING_MODEL)
-        logger.info("EmbeddingService initialized with sentence-transformers.")
+        # Check CUDA availability
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = SentenceTransformer(settings.EMBEDDING_MODEL, device=device)
+        logger.info(f"EmbeddingService initialized with sentence-transformers on device: {device}")
 
     async def initialize(self):
         """

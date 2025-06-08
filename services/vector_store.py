@@ -16,6 +16,7 @@ class VectorStoreService:
     """
 
     def __init__(self):
+        # Dummy
         self.vectors: List[np.ndarray] = []
         self.metadatas: List[dict] = []
 
@@ -106,6 +107,13 @@ class VectorStoreService:
         self.metadatas.clear()
         logger.info("Vector store cleared.")
 
+    async def close(self):
+        """
+        Async cleanup for vector store (if needed).
+        """
+        logger.info("VectorStoreService closed.")
+        pass
+
     async def initialize(self):
         """
         Async initialization for vector store (if needed).
@@ -119,6 +127,25 @@ class VectorStoreService:
         List all stored metadata entries.
         """
         return list(self.metadatas)
+    
+    def get_documents(self, document_id: str) -> List[dict]:
+        """
+        Return all metadata entries for a given document_id.
+        """
+        return [meta for meta in self.metadatas if meta.get("doc_id") == document_id]
+
+    def delete_documents(self, document_id: str) -> List[dict]:
+        """
+        Delete all metadata and vectors for a given document_id.
+        Returns the list of deleted metadata entries.
+        """
+        deleted = []
+        indices_to_delete = [i for i, meta in enumerate(self.metadatas) if meta.get("doc_id") == document_id]
+        for idx in reversed(indices_to_delete):
+            deleted.append(self.metadatas[idx])
+            del self.metadatas[idx]
+            del self.vectors[idx]
+        return deleted
 
     async def store_document(self, doc_id: str, filename: str, chunk_embeddings: list):
         """

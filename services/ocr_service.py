@@ -21,7 +21,7 @@ class OCRService:
     
     def __init__(self):
         self.reader = None
-        self.executor = ThreadPoolExecutor(max_workers=2)
+        self.executor = ThreadPoolExecutor(max_workers=8)
         
     def _initialize_reader(self):
         """Initialize EasyOCR reader (lazy loading)"""
@@ -175,8 +175,10 @@ class OCRService:
                     extracted_text.append(text)
             
             raw_text = ' '.join(extracted_text)
+            print(f"Before Correcting Thai text: {raw_text} | correct_thai_text")
             # Clean up text
             cleaned_text = self.correct_thai_text(raw_text)
+            print(f"Correcting Thai text: {cleaned_text} | correct_thai_text")
             return cleaned_text
             
         except Exception as e:
@@ -275,6 +277,5 @@ class OCRService:
         -----------
         """
         
-        print(f"Correcting Thai text: {text} | correct_thai_text")
         tokens = text.split()
         return ' '.join([correct(token) for token in tokens])
