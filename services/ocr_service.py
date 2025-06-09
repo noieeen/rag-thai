@@ -25,6 +25,10 @@ from attacut import tokenize as attacut_tokenize
 from functools import lru_cache, partial
 import pytesseract
 
+import re
+from pythainlp.corpus.common import thai_words
+
+DICT_WORD = set(thai_words())
 ## AI
 # from transformers import AutoTokenizer, AutoModelForMaskedLM
 # import torch
@@ -133,26 +137,31 @@ class OCRService:
     #
     #     return '\n'.join(cleaned)
     def _chunk_clean_spell(self, text: str, spell_fn) -> str:
-        # 1. Normalize spacing
-        text = text.replace("\n", " ").replace("  ", " ").strip()
 
-        # 2. Remove layout noise
+
+
+        # 1. Normalize and clean layout noise
+        text = re.sub(r'\n+', '\n', text)
         for noise in LAYOUT_NOISE:
             text = text.replace(noise, '')
 
-        # 3. Sentence segmentation
+        # 2. Sentence segmentation
         sentences = sent_tokenize(text, engine="whitespace+newline")
+        cleaned = []
 
-        # 4. Tokenize and spell-correct per sentence
-        corrected_sentences = []
-        for s in sentences:
-            if not s.strip():
+        for sentence in sentences:
+            if not sentence.strip():
                 continue
-            tokens = attacut_tokenize(s)
-            corrected = [spell_fn(t) for t in tokens if len(t.strip()) > 0]
-            corrected_sentences.append(' '.join(corrected))
+            tokens = attacut_tokenize(sentence)
 
-        return '\n'.join(corrected_sentences)
+            # 3. Only correct tokens not in dictionary
+            corrected = [
+                spell_fn(t) if t not in DICT_WORD and len(t.strip()) > 1 else t
+                for t in tokens
+            ]
+            cleaned.append(' '.join(corrected))
+
+        return '\n'.join(cleaned)
 
     def _clean_and_correct_text(self, raw_text: str) -> str:
         # 1. ล้าง whitespace + newline
