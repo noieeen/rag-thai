@@ -18,7 +18,7 @@ from core.config import settings
 
 # pythainlp is used for spell correction
 from pythainlp.spell import correct
-from pythainlp.tokenize import word_tokenize
+from pythainlp.tokenize import word_tokenize, sent_tokenize
 
 from attacut import tokenize as attacut_tokenize
 
@@ -42,8 +42,12 @@ CUSTOM_FIX = {
     "ยอต": "ยอด",
     "ทาร": "การ",
     "ทํา": "ทำ",
-    "กอยุทธ์":"กลยุทธ์"
+    "กอยุทธ์": "กลยุทธ์"
 }
+
+# Use regex or known UI words like “Posted:”, “Let’s Chat”, etc.
+# No need word
+LAYOUT_NOISE = ["Let's Chat", "Posted:", "บทความอื่นๆ ที่เกี่ยวข้อง", "สนใจคลิกเลย"]
 
 
 class OCRService:
@@ -117,6 +121,39 @@ class OCRService:
 
         return ' '.join(corrected_tokens)
 
+    # def _chunk_and_correct(self, raw_text: str, spell_correct_fn) -> str:
+    #     sentences = sent_tokenize(raw_text, engine="whitespace+newline")
+    #     filtered = [s for s in sentences if not any(n in s for n in LAYOUT_NOISE)]
+    #
+    #     cleaned = []
+    #     for sentence in filtered:
+    #         tokens = attacut_tokenize(sentence)
+    #         corrected = [spell_correct_fn(t) for t in tokens]
+    #         cleaned.append(' '.join(corrected))
+    #
+    #     return '\n'.join(cleaned)
+    def _chunk_clean_spell(self, text: str, spell_fn) -> str:
+        # 1. Normalize spacing
+        text = text.replace("\n", " ").replace("  ", " ").strip()
+
+        # 2. Remove layout noise
+        for noise in LAYOUT_NOISE:
+            text = text.replace(noise, '')
+
+        # 3. Sentence segmentation
+        sentences = sent_tokenize(text, engine="whitespace+newline")
+
+        # 4. Tokenize and spell-correct per sentence
+        corrected_sentences = []
+        for s in sentences:
+            if not s.strip():
+                continue
+            tokens = attacut_tokenize(s)
+            corrected = [spell_fn(t) for t in tokens if len(t.strip()) > 0]
+            corrected_sentences.append(' '.join(corrected))
+
+        return '\n'.join(corrected_sentences)
+
     def _clean_and_correct_text(self, raw_text: str) -> str:
         # 1. ล้าง whitespace + newline
         text = raw_text.replace("\n", " ").replace("  ", " ").strip()
@@ -125,7 +162,6 @@ class OCRService:
         tokens = attacut_tokenize(text)
 
         # 3. กรอง layout noise
-        LAYOUT_NOISE = ["Let's Chat", "Posted:", "@", "Festival", "Songkran", "บทความ", "แคมเปญ","e-Coupon", "ChocoCRM"]
         tokens = [t for t in tokens if all(n not in t for n in LAYOUT_NOISE)]
 
         # 4. แก้คำผิดแบบ caching
@@ -454,8 +490,11 @@ class OCRService:
         text = pytesseract.image_to_string(thresh, config=settings.OCR_TESSERACT_CONFIG,
                                            lang=settings.OCR_TESSERACT_LANGUAGE)
         text = text.encode('utf-8', 'replace').decode()
-        cleaned_text = self._clean_and_correct_text(text)
-        cleaned_text = self._apply_custom_fixes(cleaned_text)
+        # cleaned_text = self._clean_and_correct_text(text)
+        # cleaned_text = self._apply_custom_fixes(text)
+
+        cleaned_text = self._chunk_clean_spell(text, correct)
+
         #
         # text = text.replace("\n", " ").replace("  ", " ").strip()
         # tokens = attacut_tokenize(text)
@@ -473,7 +512,6 @@ class OCRService:
         # # corrected = [self._cached_correct_word(t) for t in tokens]
         # # ' '.join(corrected)
         print(cleaned_text)
-
 
         def _process_image_sync():
             return "XX"

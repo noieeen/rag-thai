@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     OCR_PDF_PROCESSING_TARGET_DPI: int = 200  # Lower DPI for memory saving
     OCR_PDF_PROCESSING_MEMORY_CHECK_INTERVAL: int = 5  # Check memory every 5 pages
 
+    OCR_PYTHAINLP_TOKENIZE_ENGINE: str = "whitespace+newline"
+
     # Text Processing Settings
     DEFAULT_CHUNK_SIZE: int = 500
     DEFAULT_CHUNK_OVERLAP: int = 50
@@ -68,7 +70,7 @@ class Settings(BaseSettings):
 
     # Thai Language Settings
     THAI_TOKENIZER: str = "newmm"  # Options: newmm, longest, deepcut
-    WORD_TOKENIZER_ENGINE:str = "attacut"
+    WORD_TOKENIZER_ENGINE: str = "attacut"
     REMOVE_STOPWORDS: bool = True
     NORMALIZE_TEXT: bool = True
 
