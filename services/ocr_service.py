@@ -25,6 +25,14 @@ from attacut import tokenize as attacut_tokenize
 from functools import lru_cache, partial
 import pytesseract
 
+## AI
+# from transformers import AutoTokenizer, AutoModelForMaskedLM
+# import torch
+
+# tokenizer = AutoTokenizer.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased")
+# model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").cuda()
+
+
 logger = logging.getLogger(__name__)
 
 CUSTOM_FIX = {
@@ -33,7 +41,8 @@ CUSTOM_FIX = {
     "ข้า": "ค้า",
     "ยอต": "ยอด",
     "ทาร": "การ",
-    "ทํา": "ทำ"
+    "ทํา": "ทำ",
+    "กอยุทธ์":"กลยุทธ์"
 }
 
 
@@ -82,7 +91,7 @@ class OCRService:
             )
             logger.info("EasyOCR reader initialized successfully.")
 
-    @lru_cache(maxsize=2048)  # Cache up to 2048 unique word corrections
+    @lru_cache(maxsize=4096)  # Cache up to 2048 unique word corrections
     def _cached_correct_word(self, word: str) -> str:
         """Helper function to cache results of pythainlp.spell.correct."""
         try:
@@ -116,7 +125,7 @@ class OCRService:
         tokens = attacut_tokenize(text)
 
         # 3. กรอง layout noise
-        LAYOUT_NOISE = ["Let's Chat", "Posted:", "@", "Festival", "Songkran", "บทความ", "แคมเปญ"]
+        LAYOUT_NOISE = ["Let's Chat", "Posted:", "@", "Festival", "Songkran", "บทความ", "แคมเปญ","e-Coupon", "ChocoCRM"]
         tokens = [t for t in tokens if all(n not in t for n in LAYOUT_NOISE)]
 
         # 4. แก้คำผิดแบบ caching
@@ -131,6 +140,25 @@ class OCRService:
         for k, v in CUSTOM_FIX.items():
             text = text.replace(k, v)
         return text
+
+    def correct_tokens_fast(self, tokens: List[str], processes: int = 4) -> List[str]:
+        """
+        Fast spell correction using multiprocessing + LRU cache.
+        :param tokens: list of tokens to correct
+        :param processes: number of parallel processes
+        """
+        from multiprocessing import Pool, get_context
+
+        if not tokens:
+            return []
+
+        try:
+            with get_context("fork").Pool(processes=processes) as pool:
+                corrected = pool.map(self._cached_correct_word, tokens)
+            return corrected
+        except Exception as e:
+            logger.warning(f"Multiprocessing spell correction failed: {e}. Falling back to single-threaded.")
+            return [self._cached_correct_word(t) for t in tokens]
 
     async def extract_text(self, file_path: str) -> str:
         """Extract text from a file (PDF, image, or plain text)."""
@@ -475,34 +503,17 @@ class OCRService:
         return img
 
     def _perform_ocr_sync(self, img: np.ndarray) -> str:
-        """Synchronously performs OCR on a preprocessed image."""
-        self._initialize_reader()
-        # with MemoryGuard(max_memory_usage=0.85):  # 85% system memory
-
+        """Synchronously performs OCR on a preprocessed image using Tesseract only."""
         try:
-            if settings.OCR_ENGINE == "tesseract":
-                return self._perform_tesseract_ocr(img)
+            text = pytesseract.image_to_string(img, config="-l tha+eng --psm 6")
+            text = text.encode('utf-8', 'replace').decode()
 
-            results = self.reader.readtext(img, detail=1)
+            cleaned_text = self._clean_and_correct_text(text)
+            cleaned_text = self._apply_custom_fixes(cleaned_text)
 
-            extracted_text = []
-            for (bbox, text, confidence) in results:
-                if confidence > 0.4:
-                    extracted_text.append(text)
-
-            raw_text = ' '.join(extracted_text)
-            logger.debug(f"Raw OCR text before correction: {raw_text}")
-
-            if settings.OCR_ENABLE_SPELL_CORRECTION:
-                cleaned_text = self.correct_thai_text(raw_text)
-                logger.debug(f"Corrected text: {cleaned_text}")
-                return cleaned_text
-            else:
-                logger.debug("Spell correction disabled.")
-                return raw_text
-
+            return cleaned_text
         except Exception as e:
-            logger.error(f"OCR processing failed: {e}")
+            logger.error(f"Tesseract OCR failed: {e}")
             return ""
 
     def _perform_tesseract_ocr(self, img: np.ndarray) -> str:
