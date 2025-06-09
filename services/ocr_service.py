@@ -10,7 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 
-from resource import getrusage, RUSAGE_SELF
+import platform
+if platform.system() != 'Windows':
+    from resource import getrusage, RUSAGE_SELF
+
 import gc
 from utils.memory_utils import MemoryGuard
 
@@ -33,7 +36,10 @@ DICT_WORD = set(thai_words())
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 import torch
 
-tokenizer = AutoTokenizer.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased")
+tokenizer = AutoTokenizer.from_pretrained(
+    "airesearch/wangchanberta-base-att-spm-uncased",
+    use_fast=False
+)
 # model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").cuda()
 # CPU
 # model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").to("cpu")
@@ -570,12 +576,12 @@ class OCRService:
         text = pytesseract.image_to_string(thresh, config=settings.OCR_TESSERACT_CONFIG,
                                            lang=settings.OCR_TESSERACT_LANGUAGE)
         text = text.encode('utf-8', 'replace').decode()
-        # cleaned_text = self._clean_and_correct_text(text)
-        # cleaned_text = self._apply_custom_fixes(text)
+        cleaned_text = self._clean_and_correct_text(text)
+        cleaned_text = self._apply_custom_fixes(text)
 
         # cleaned_text = self._chunk_clean_spell(text, correct) # -> not bad
 
-        cleaned_text = self._correct_with_transformer(text)
+        # cleaned_text = self._correct_with_transformer(text)
         #
         # text = text.replace("\n", " ").replace("  ", " ").strip()
         # tokens = attacut_tokenize(text)

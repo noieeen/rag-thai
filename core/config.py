@@ -44,10 +44,11 @@ class Settings(BaseSettings):
     OCR_ENGINE: str = "tesseract"  # easyocr, tesseract
     OCR_LANGUAGES: List[str] = ["th", "en"]  # Thai and English
     OCR_GPU: bool = True
-    OCR_USE_GPU_CORRECTOR: bool = True
+    OCR_USE_GPU_CORRECTOR: bool = False
     OCR_ENABLE_SPELL_CORRECTION: bool = True  # Setting: Enable/Disable spell correction
 
-    OCR_TESSERACT_EXECUTE_LOCATION: str = "/opt/homebrew/bin/tesseract"
+    OCR_TESSERACT_EXECUTE_LOCATION: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe" ## Homebrew -> "/opt/homebrew/bin/tesseract"
+    OCR_TESSERACT_PATH_TO_TRAINED_DATA:str = r"C:\Program Files\Tesseract-OCR\tessdata" ## Windows
     OCR_TESSERACT_LANGUAGE: str = "tha+eng"
     OCR_TESSERACT_CONFIG: str = "-l tha+eng --psm 6"
 
