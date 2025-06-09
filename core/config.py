@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     OCR_ENGINE: str = "tesseract"  # easyocr, tesseract
     OCR_LANGUAGES: List[str] = ["th", "en"]  # Thai and English
     OCR_GPU: bool = True
+    OCR_USE_GPU_CORRECTOR: bool = True
     OCR_ENABLE_SPELL_CORRECTION: bool = True  # Setting: Enable/Disable spell correction
 
     OCR_TESSERACT_EXECUTE_LOCATION: str = "/opt/homebrew/bin/tesseract"

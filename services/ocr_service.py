@@ -30,11 +30,13 @@ from pythainlp.corpus.common import thai_words
 
 DICT_WORD = set(thai_words())
 ## AI
-# from transformers import AutoTokenizer, AutoModelForMaskedLM
-# import torch
+from transformers import AutoTokenizer, AutoModelForMaskedLM
+import torch
 
-# tokenizer = AutoTokenizer.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased")
+tokenizer = AutoTokenizer.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased")
 # model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").cuda()
+# CPU
+# model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").to("cpu")
 
 
 logger = logging.getLogger(__name__)
@@ -138,8 +140,6 @@ class OCRService:
     #     return '\n'.join(cleaned)
     def _chunk_clean_spell(self, text: str, spell_fn) -> str:
 
-
-
         # 1. Normalize and clean layout noise
         text = re.sub(r'\n+', '\n', text)
         for noise in LAYOUT_NOISE:
@@ -162,6 +162,77 @@ class OCRService:
             cleaned.append(' '.join(corrected))
 
         return '\n'.join(cleaned)
+
+    def _correct_token_gpu(self, token: str, top_k: int = 1) -> str:
+        if token in DICT_WORD or len(token.strip()) < 2:
+            return token
+
+        # if torch.cuda.is_available():
+        #     logger.info("CUDA available. Loading model on GPU.")
+        #     model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").cuda()
+        # else:
+        #     import platform
+        #     system = platform.system()
+        #     if system == "Darwin":
+        #         logger.warning("macOS detected: CUDA is not supported. Using CPU.")
+        #     else:
+        #         logger.warning("CUDA not available. Falling back to CPU.")
+        #     model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").to("cpu")
+
+        ## Check Device
+        try:
+            if torch.cuda.is_available():
+                model_device = torch.device("cuda")
+                logger.info("CUDA is available. Loading model on GPU.")
+            else:
+                import platform
+                if platform.system() == "Darwin":
+                    logger.warning("macOS detected: CUDA is not supported. Using CPU.")
+                else:
+                    logger.warning("CUDA not available. Using CPU.")
+                model_device = torch.device("cpu")
+            model = AutoModelForMaskedLM.from_pretrained("airesearch/wangchanberta-base-att-spm-uncased").to(
+                model_device)
+        except Exception as e:
+            logger.error(f"Failed to initialize transformer model: {e}")
+            model_device = torch.device("cpu")
+            model = None
+
+        try:
+            # # input_ids = tokenizer.encode(f"[MASK]", return_tensors="pt").cuda()
+            # input_ids = tokenizer.encode(f"[MASK]", return_tensors="pt").to(model_device)
+            #
+            # # Guard clause: ensure the mask token index is not empty
+            # mask_token_index = (input_ids == tokenizer.mask_token_id)[0].nonzero(as_tuple=True)[0]
+            # if mask_token_index.numel() == 0:
+            #     raise ValueError("No [MASK] token found in input_ids. Skipping token.")
+            # Explicitly include the [MASK] token in the input
+            input_ids = tokenizer.encode(f"{token} [MASK]", return_tensors="pt").to(model_device)
+            # Validation: Check for [MASK] token presence
+            if tokenizer.mask_token_id not in input_ids:
+                raise ValueError("No [MASK] token found in input_ids. Skipping token.")
+
+            with torch.no_grad():
+                logits = model(input_ids).logits
+                mask_token_index = (input_ids == tokenizer.mask_token_id)[0].nonzero(as_tuple=True)[0]
+                probs = logits[0, mask_token_index].softmax(dim=-1)
+                top_tokens = torch.topk(probs, k=top_k).indices[0].tolist()
+                return tokenizer.decode([top_tokens[0]]).strip()
+        except Exception as e:
+            # logger.warning(f"GPU spell correction failed for '{token}': {e}")
+            logger.warning(f"GPU spell correction failed for '{token}': {type(e).__name__}: {e}")
+            return token
+
+    def _correct_with_transformer(self, text: str, max_tokens=15) -> str:
+        chunks = attacut_tokenize(text)
+        cleaned_chunks = []
+
+        for i in range(0, len(chunks), max_tokens):
+            chunk = " ".join(chunks[i:i + max_tokens])
+            corrected = self._correct_token_gpu(chunk)
+            cleaned_chunks.append(corrected)
+
+        return " ".join(cleaned_chunks)
 
     def _clean_and_correct_text(self, raw_text: str) -> str:
         # 1. ล้าง whitespace + newline
@@ -502,8 +573,9 @@ class OCRService:
         # cleaned_text = self._clean_and_correct_text(text)
         # cleaned_text = self._apply_custom_fixes(text)
 
-        cleaned_text = self._chunk_clean_spell(text, correct)
+        # cleaned_text = self._chunk_clean_spell(text, correct) # -> not bad
 
+        cleaned_text = self._correct_with_transformer(text)
         #
         # text = text.replace("\n", " ").replace("  ", " ").strip()
         # tokens = attacut_tokenize(text)
