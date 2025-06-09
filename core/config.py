@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     VECTOR_DB_HOST: str = "localhost"  # For ChromaDB
     VECTOR_DB_PORT: int = 8000  # Default port for ChromaDB
     VECTOR_COLLECTION_NAME: str = "thai_rag_collection"
-    CHROMA_PERSIST_DIR: str = "./chroma_db"
+    CHROMA_PERSIST_DIR: str = ".chroma_db"
     
     # # Pinecone settings (if using Pinecone)
     # PINECONE_API_KEY: str = ""

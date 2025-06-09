@@ -2,7 +2,7 @@ import easyocr
 import cv2
 import numpy as np
 from PIL import Image
-import fitz  # PyMuPDF
+import pymupdf
 import logging
 from typing import List, Tuple
 import asyncio
@@ -64,7 +64,7 @@ class OCRService:
             print(f"Processing PDF | _process_pdf: {pdf_path}")
             # Try to extract text directly first (for text-based PDFs)
             try:
-                doc = fitz.open(pdf_path)
+                doc = pymupdf.open(pdf_path)
                 for page_num in range(len(doc)):
                     page = doc.load_page(page_num)
                     text = page.get_text()
@@ -96,7 +96,7 @@ class OCRService:
     def _ocr_pdf_page(self, page) -> str:
         """Perform OCR on a single PDF page"""
         # Convert page to image
-        mat = fitz.Matrix(2, 2)  # 2x zoom for better OCR quality
+        mat = pymupdf.Matrix(2, 2)  # 2x zoom for better OCR quality
         pix = page.get_pixmap(matrix=mat)
         img_data = pix.tobytes("png")
         
@@ -111,7 +111,7 @@ class OCRService:
         self._initialize_reader()
         
         extracted_text = []
-        doc = fitz.open(pdf_path)
+        doc = pymupdf.open(pdf_path)
         
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)

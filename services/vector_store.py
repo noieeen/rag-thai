@@ -1,11 +1,15 @@
+import chromadb
 import numpy as np
 from typing import List, Tuple, Optional
 import logging
 from rank_bm25 import BM25Okapi
 import pythainlp
+import uuid
+
 
 logger = logging.getLogger(__name__)
 
+from core.config import settings
 
 bm25_corpus = []
 bm25_index = None
@@ -16,24 +20,29 @@ class VectorStoreService:
     """
 
     def __init__(self):
-        # Dummy
-        self.vectors: List[np.ndarray] = []
-        self.metadatas: List[dict] = []
+        # Connect to ChromaDB persistent client
+        self.client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR)
+        # self.client = chromadb.Client(ChromaSettings(
+        #     chroma_db_impl="duckdb+parquet",
+        #     persist_directory=settings.CHROMA_PERSIST_DIR
+        # ))
+        self.client = chromadb.EphemeralClient()
+        self.collection = self.client.get_or_create_collection(settings.VECTOR_COLLECTION_NAME)
 
     def add(self, embedding: np.ndarray, metadata: dict):
         """
         Add an embedding and its metadata to the store.
         """
-        self.vectors.append(embedding)
-        self.metadatas.append(metadata)
-        
+        # self.vectors.append(embedding)
+        # self.metadatas.append(metadata)
+        uid = str(uuid.uuid4())
+        self.collection.add(
+            embeddings=[embedding.tolist()],
+            metadatas=[metadata],
+            ids=[uid]
+        )
         ## Try to print metadata in a more readable format
         print(f"Added embedding with metadata | add: {metadata}")
-        if len(self.vectors) % 100 == 0:
-            logger.info(f"Added {len(self.vectors)} vectors to the store.")
-        else:
-            logger.debug(f"Added vector with metadata: {metadata}")
-        logger.debug(f"Added vector. Total count: {len(self.vectors)}")
 
     async def search(
         self,
@@ -42,36 +51,22 @@ class VectorStoreService:
         threshold: float = 0.0,
         filter_doc_ids: Optional[List[str]] = None
     ) -> List[Tuple[dict, float]]:
-        """
-        Search for the top_k most similar embeddings to the query_embedding.
-        Optionally filter by similarity threshold and document IDs.
-        Returns a list of (metadata, similarity) tuples.
-        """
-        print(f"Searching for top {top_k} similar vectors. | search")
-        
-        if not self.vectors:
-            logger.warning("Vector store is empty.")
-            return []
+        query = query_embedding.tolist()
+        where_filter = {"doc_id": {"$in": filter_doc_ids}} if filter_doc_ids else None
+        results = self.collection.query(
+            query_embeddings=[query],
+            n_results=top_k,
+            where=where_filter,
+            include=["metadatas", "distances"]
+        )
+        output = []
+        for metadata, distance in zip(results["metadatas"][0], results["distances"][0]):
+            score = 1.0 - distance
+            if score >= threshold:
+                output.append((metadata, score))
+        return output
 
-        similarities = []
-        for idx, emb in enumerate(self.vectors):
-            sim = self._cosine_similarity(query_embedding, emb)
-            
-            ## Test
-            print(f"Similarity to chunk {idx}: {sim:.4f}")
-            meta = self.metadatas[idx]
-            if sim >= threshold:
-                if filter_doc_ids is None or meta.get("doc_id") in filter_doc_ids:
-                    similarities.append((idx, sim))
 
-        # Sort by similarity descending
-        similarities.sort(key=lambda x: x[1], reverse=True)
-        results = []
-        for idx, sim in similarities[:top_k]:
-            results.append((self.metadatas[idx], sim))
-        return results
-
-    
     # def hybrid_search(query_embedding, query_tokens):
     #     vector_results = vector_search(...)
     #     bm25_results = bm25_search(...)
@@ -88,7 +83,7 @@ class VectorStoreService:
 
     #     # Return sorted
     #     return sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        
+
     @staticmethod
     def _cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
         if vec1 is None or vec2 is None:
@@ -103,8 +98,8 @@ class VectorStoreService:
         """
         Clear all stored vectors and metadata.
         """
-        self.vectors.clear()
-        self.metadatas.clear()
+        self.client.delete_collection(settings.VECTOR_COLLECTION_NAME)
+        self.collection = self.client.get_or_create_collection(settings.VECTOR_COLLECTION_NAME)
         logger.info("Vector store cleared.")
 
     async def close(self):
@@ -126,26 +121,30 @@ class VectorStoreService:
         """
         List all stored metadata entries.
         """
-        return list(self.metadatas)
-    
+        return self.collection.get(include=["metadatas"])["metadatas"]
+
     def get_documents(self, document_id: str) -> List[dict]:
         """
         Return all metadata entries for a given document_id.
         """
-        return [meta for meta in self.metadatas if meta.get("doc_id") == document_id]
+        results = self.collection.get(
+            where={"doc_id": document_id},
+            include=["metadatas"]
+        )
+        return results["metadatas"]
 
     def delete_documents(self, document_id: str) -> List[dict]:
         """
         Delete all metadata and vectors for a given document_id.
         Returns the list of deleted metadata entries.
         """
-        deleted = []
-        indices_to_delete = [i for i, meta in enumerate(self.metadatas) if meta.get("doc_id") == document_id]
-        for idx in reversed(indices_to_delete):
-            deleted.append(self.metadatas[idx])
-            del self.metadatas[idx]
-            del self.vectors[idx]
-        return deleted
+        results = self.collection.get(
+            where={"doc_id": document_id},
+            include=["ids", "metadatas"]
+        )
+        ids_to_delete = results["ids"]
+        self.collection.delete(ids=ids_to_delete)
+        return results["metadatas"]
 
     async def store_document(self, doc_id: str, filename: str, chunk_embeddings: list):
         """
@@ -159,8 +158,16 @@ class VectorStoreService:
                 **(chunk.metadata if hasattr(chunk, "metadata") else {})
             }
             self.add(chunk.embedding, metadata)
-    
+
     def build_bm25_index(self):
-        tokenized_corpus = [pythainlp.word_tokenize(chunk["text"]) for chunk in self.metadatas]
+        items = self.collection.get(include=["metadatas"])
+        tokenized_corpus = [pythainlp.word_tokenize(m["text"]) for m in items["metadatas"] if "text" in m]
         self.bm25_index = BM25Okapi(tokenized_corpus)
-        self.bm25_corpus = self.metadatas
+        self.bm25_corpus = items["metadatas"]
+
+
+    def get_collection(self):
+        print("Listing all items in Chroma collection:")
+        results = self.collection.get(include=["embeddings", "metadatas"])
+        for i, (meta, embedding) in enumerate(zip(results['metadatas'], results['embeddings'])):
+            print(f"[{i}] Metadata: {meta}\n    Embedding (dim {len(embedding)}): {embedding[:5]}...")

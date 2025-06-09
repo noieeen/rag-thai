@@ -77,3 +77,6 @@ dmypy.json
 
 #uploads files
 uploads/*
+
+# Chroma data
+.chroma_db
