@@ -20,10 +20,21 @@ from core.config import settings
 from pythainlp.spell import correct
 from pythainlp.tokenize import word_tokenize
 
+from attacut import tokenize as attacut_tokenize
+
 from functools import lru_cache, partial
 import pytesseract
 
 logger = logging.getLogger(__name__)
+
+CUSTOM_FIX = {
+    "ตู": "ดู",
+    "ใกล้ซิด": "ใกล้ชิด",
+    "ข้า": "ค้า",
+    "ยอต": "ยอด",
+    "ทาร": "การ",
+    "ทํา": "ทำ"
+}
 
 
 class OCRService:
@@ -96,6 +107,30 @@ class OCRService:
         corrected_tokens = [self._cached_correct_word(token) for token in tokens]
 
         return ' '.join(corrected_tokens)
+
+    def _clean_and_correct_text(self, raw_text: str) -> str:
+        # 1. ล้าง whitespace + newline
+        text = raw_text.replace("\n", " ").replace("  ", " ").strip()
+
+        # 2. ตัดคำด้วย attacut
+        tokens = attacut_tokenize(text)
+
+        # 3. กรอง layout noise
+        LAYOUT_NOISE = ["Let's Chat", "Posted:", "@", "Festival", "Songkran", "บทความ", "แคมเปญ"]
+        tokens = [t for t in tokens if all(n not in t for n in LAYOUT_NOISE)]
+
+        # 4. แก้คำผิดแบบ caching
+        if settings.OCR_ENABLE_SPELL_CORRECTION:
+            corrected = [self._cached_correct_word(t) for t in tokens]
+        else:
+            corrected = tokens
+
+        return ' '.join(corrected)
+
+    def _apply_custom_fixes(self, text: str) -> str:
+        for k, v in CUSTOM_FIX.items():
+            text = text.replace(k, v)
+        return text
 
     async def extract_text(self, file_path: str) -> str:
         """Extract text from a file (PDF, image, or plain text)."""
@@ -390,7 +425,26 @@ class OCRService:
 
         text = pytesseract.image_to_string(thresh, config=settings.OCR_TESSERACT_CONFIG,
                                            lang=settings.OCR_TESSERACT_LANGUAGE)
-        print(text.encode('utf-8', 'replace').decode())
+        text = text.encode('utf-8', 'replace').decode()
+        cleaned_text = self._clean_and_correct_text(text)
+        cleaned_text = self._apply_custom_fixes(cleaned_text)
+        #
+        # text = text.replace("\n", " ").replace("  ", " ").strip()
+        # tokens = attacut_tokenize(text)
+        #
+        # # Try Use regex or keyword filters to skip boilerplate text
+        # LAYOUT_NOISE = ["Let's Chat", "Posted:", "@", "Festival", "Songkran", "ChocoCRM", "บทความ", "แบรนด์", "แคมเปญ"]
+        # tokens = [t for t in tokens if t.strip() and all(noise not in t for noise in LAYOUT_NOISE)]
+        #
+        # # 4. fix wrong word and caching
+        # if settings.OCR_ENABLE_SPELL_CORRECTION:
+        #     corrected = [self._cached_correct_word(t) for t in tokens]
+        # else:
+        #     corrected = tokens
+        # cleaned_text = ' '.join(corrected)
+        # # corrected = [self._cached_correct_word(t) for t in tokens]
+        # # ' '.join(corrected)
+        print(cleaned_text)
 
 
         def _process_image_sync():

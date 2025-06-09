@@ -68,6 +68,7 @@ class Settings(BaseSettings):
 
     # Thai Language Settings
     THAI_TOKENIZER: str = "newmm"  # Options: newmm, longest, deepcut
+    WORD_TOKENIZER_ENGINE:str = "attacut"
     REMOVE_STOPWORDS: bool = True
     NORMALIZE_TEXT: bool = True
 
