@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # OCR Settings
     OCR_LANGUAGES: List[str] = ["th", "en"]  # Thai and English
     OCR_GPU: bool = True
+    OCR_ENABLE_SPELL_CORRECTION: bool = False
     
     # Text Processing Settings
     DEFAULT_CHUNK_SIZE: int = 500
