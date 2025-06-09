@@ -10,33 +10,66 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 
-from exceptiongroup import catch
-from pythainlp.spell import correct
-import asyncio
+from resource import getrusage, RUSAGE_SELF
+import gc
+from utils.memory_utils import MemoryGuard
 
 from core.config import settings
 
-from functools import lru_cache, partial  # Import lru_cache and partial
+# pythainlp is used for spell correction
+from pythainlp.spell import correct
+from pythainlp.tokenize import word_tokenize
+
+from functools import lru_cache, partial
+import pytesseract
 
 logger = logging.getLogger(__name__)
 
 
 class OCRService:
-    """Service for OCR text extraction from images and PDFs"""
+    """
+    Service for OCR text extraction from images and PDFs,
+    optimized for speed and accuracy.
+    """
 
-    def __init__(self):
+    def __init__(self, max_workers=None,
+                 max_memory_gb=settings.OCR_PROCESSING_MAX_MEMORY_GB):  ## os.cpu_count() -> all cpu / too much consume memory
+
+        pytesseract.pytesseract.tesseract_cmd = f'{settings.OCR_TESSERACT_EXECUTE_LOCATION}'
+
+        # Calculate workers based on available memory
+        if max_workers is None:
+            max_workers = max(1, int(max_memory_gb * 0.8))  # 80% of available memory
+
+        self.max_memory_gb = max_memory_gb
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.active_tasks = 0
+        self.memory_semaphore = asyncio.Semaphore(max_workers * 2)  # Control concurrent heavy operations
+
         self.reader = None
-        self.executor = ThreadPoolExecutor(max_workers=8)
+        logger.info(f"Initialized OCRService with {max_workers} thread pool workers.")
+
+    async def _memory_safe_ocr(self, img: np.ndarray) -> str:
+        """Process OCR with memory constraints"""
+        async with self.memory_semaphore:
+            if self._check_memory_usage() > self.max_memory_gb * 0.9:  # 90% threshold
+                gc.collect()
+                await asyncio.sleep(1)  # Allow memory to settle
+            return await asyncio.to_thread(self._perform_ocr_sync, img)
+
+    def _check_memory_usage(self) -> float:
+        """Check current memory usage in GB"""
+        return getrusage(RUSAGE_SELF).ru_maxrss / (1024 ** 2)  # Convert to GB
 
     def _initialize_reader(self):
-        """Initialize EasyOCR reader (lazy loading)"""
+        """Lazy-load and initialize EasyOCR reader."""
         if self.reader is None:
             logger.info("Initializing EasyOCR reader...")
             self.reader = easyocr.Reader(
                 settings.OCR_LANGUAGES,
                 gpu=settings.OCR_GPU
             )
-            logger.info("EasyOCR reader initialized successfully")
+            logger.info("EasyOCR reader initialized successfully.")
 
     @lru_cache(maxsize=2048)  # Cache up to 2048 unique word corrections
     def _cached_correct_word(self, word: str) -> str:
@@ -56,155 +89,281 @@ class OCRService:
             return ""
 
         # Simple split by whitespace; for more complex scenarios, consider pythainlp.tokenize.word_tokenize
-        tokens = text.split()
+        # tokens = text.split()
 
         # Apply cached correction to each token
+        tokens = word_tokenize(text, engine=settings.THAI_TOKENIZER)
         corrected_tokens = [self._cached_correct_word(token) for token in tokens]
 
         return ' '.join(corrected_tokens)
 
     async def extract_text(self, file_path: str) -> str:
-        """Extract text from file (PDF or image)"""
-
+        """Extract text from a file (PDF, image, or plain text)."""
         logger.info(f"Starting text extraction for: {file_path}")
-        file_path = Path(file_path)
+        file_path_obj = Path(file_path)
 
-        if not file_path.exists():
+        if not file_path_obj.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        file_extension = file_path.suffix.lower()
+        file_extension = file_path_obj.suffix.lower()
 
         if file_extension == '.pdf':
-            return await self._extract_from_pdf(str(file_path))
+            return await self._extract_from_pdf(str(file_path_obj))
         elif file_extension in ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']:
-            return await self._extract_from_image(str(file_path))
+            return await self._extract_from_image(str(file_path_obj))
         elif file_extension == '.txt':
-            return await self._read_text_file(str(file_path))
+            return await self._read_text_file(str(file_path_obj))
         else:
             raise ValueError(f"Unsupported file type: {file_extension}")
 
+    # async def _extract_from_pdf(self, pdf_path: str) -> str:
+    #     """
+    #     Extract text from a PDF file. Prioritizes direct text extraction.
+    #     Falls back to parallel OCR for image-based pages.
+    #     """
+    #     logger.info(f"Extracting text from PDF: {pdf_path}")
+    #
+    #     def _process_pdf_sync():
+    #         extracted_text_parts = []
+    #         pages_to_ocr_images = []
+    #
+    #         try:
+    #             doc = pymupdf.open(pdf_path)
+    #             for page_num in range(len(doc)):
+    #                 try:
+    #                     page = doc.load_page(page_num)
+    #                     if page is None: # Explicit check for None page
+    #                         logger.warning(f"Page {page_num + 1} of {pdf_path} is None. Skipping for direct text/OCR.")
+    #                         continue
+    #
+    #                     text = page.get_text()
+    #                     if text.strip():
+    #                         extracted_text_parts.append(text)
+    #                     else:
+    #                         logger.info(f"No direct text on page {page_num + 1}. Preparing for OCR.")
+    #                         pages_to_ocr_images.append(page)
+    #                 except Exception as page_e:
+    #                     logger.error(f"Error loading or processing page {page_num + 1}: {page_e}. Skipping this page.")
+    #                     continue # Continue to the next page even if one fails
+    #             doc.close()
+    #
+    #             # Perform OCR on pages that didn't yield text, in parallel
+    #             if pages_to_ocr_images:
+    #                 logger.info(f"Performing parallel OCR on {len(pages_to_ocr_images)} image-based PDF pages.")
+    #                 # Use partial to pass the instance method along with the page object to map
+    #                 ocr_results = list(self.executor.map(
+    #                     partial(self._ocr_pdf_page_sync, self),
+    #                     pages_to_ocr_images
+    #                 ))
+    #
+    #                 for ocr_text in ocr_results:
+    #                     if ocr_text:
+    #                         extracted_text_parts.append(ocr_text)
+    #
+    #             logger.info(f"Finished processing PDF: {pdf_path}")
+    #             return '\n\n'.join(extracted_text_parts)
+    #
+    #         except Exception as e:
+    #             logger.error(f"Critical error opening/processing PDF {pdf_path}: {e}. Attempting full image-based OCR fallback.")
+    #             return self._ocr_entire_pdf_sync(pdf_path)
+    #
+    #     return await asyncio.to_thread(_process_pdf_sync)
+
     async def _extract_from_pdf(self, pdf_path: str) -> str:
-        print(f"Extracting text from PDF | _extract_from_pdf: {pdf_path}")
-        """Extract text from PDF file"""
+        """Extract text from PDF with automatic fallback to serial processing"""
         logger.info(f"Extracting text from PDF: {pdf_path}")
 
         def _process_pdf_sync():
-            extracted_text_parts = []
-            pages_to_ocr_images = []
-
-            print(f"Processing PDF | _process_pdf: {pdf_path}")
-            # Try to extract text directly first (for text-based PDFs)
             try:
-                doc = pymupdf.open(pdf_path)
-                for page_num in range(len(doc)):
-                    page = doc.load_page(page_num)
-                    text = page.get_text()
+                # First attempt with parallel processing
+                result = self._try_parallel_pdf_processing(pdf_path)
+                if result:  # If we got any text, return it
+                    return result
 
-                    if text.strip():
-                        extracted_text_parts.append(text)
-                    else:
-                        # If no text found, use OCR on page image
-                        logger.info(f"No text found on page {page_num + 1}, using OCR...")
-                        # ocr_text = self._ocr_pdf_page(page)
-                        # if ocr_text:
-                        pages_to_ocr_images.append(page)
-
-                doc.close()
-
-                # Perform OCR on pages that didn't yield text, in parallel
-                # if pages_to_ocr_images:
-                #     logger.info(f"Performing parallel OCR on {len(pages_to_ocr_images)}")
-                #     # Use partial to pass the instance method to map
-                #     ocr_results = list(self.executor.map(
-                #         partial(self._ocr_pdf_page_sync, self),  # Pass self for instance method
-                #         pages_to_ocr_images
-                #     ))
-                #
-                #     for ocr_text in ocr_results:
-                #         if ocr_text:
-                #             extracted_text_parts.append(ocr_text)
-                # Perform OCR on pages that didn't yield text, in parallel
-                if pages_to_ocr_images:
-                    logger.info(f"Performing OCR on {len(pages_to_ocr_images)} image-based PDF pages in parallel.")
-
-                    # Use self.executor to run OCR for each page concurrently
-                    # partial is used to pass arguments to _ocr_pdf_page in the map function
-                    ocr_results = list(self.executor.map(self._ocr_pdf_page_sync, pages_to_ocr_images))
-
-                    for ocr_text in ocr_results:
-                        if ocr_text:
-                            extracted_text_parts.append(ocr_text)
-
-                logger.info(f"Finish processing PDF: {pdf_path}")
-                return '\n\n'.join(extracted_text_parts)
-
+                # Fallback to serial processing
+                logger.warning("Parallel processing failed, attempting serial processing")
+                return self._process_pdf_serially(pdf_path)
 
             except Exception as e:
-                logger.error(f"Error processing PDF {pdf_path}: {e}. Attempting full image-based OCR fallback.")
-                # Fallback to full image-based OCR if initial processing fails
-                return self._ocr_entire_pdf_sync(pdf_path)
+                logger.error(f"PDF processing completely failed: {e}")
+                return ""
 
         return await asyncio.to_thread(_process_pdf_sync)
 
-        # return await asyncio.get_event_loop().run_in_executor(
-        #     self.executor, _process_pdf_sync()
-        # )
+    def _try_parallel_pdf_processing(self, pdf_path: str) -> str:
+        """Attempt parallel processing of PDF"""
+        extracted_text_parts = []
+        pages_to_ocr_images = []
 
-    # Static method to allow easy use with executor.map without binding issues
+        try:
+            doc = pymupdf.open(pdf_path)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                if page is None:
+                    continue
+
+                text = page.get_text()
+                if text.strip():
+                    extracted_text_parts.append(text)
+                else:
+                    pages_to_ocr_images.append(page)
+
+            if pages_to_ocr_images:
+                # Try parallel processing
+                ocr_results = list(self.executor.map(
+                    partial(self._ocr_pdf_page_sync, self),
+                    pages_to_ocr_images
+                ))
+                extracted_text_parts.extend(r for r in ocr_results if r)
+
+            return '\n\n'.join(extracted_text_parts)
+        except Exception as e:
+            logger.error(f"Parallel PDF processing failed: {e}")
+            return ""
+
+    def _process_pdf_serially(self, pdf_path: str) -> str:
+        """Process PDF serially as fallback"""
+        extracted_text_parts = []
+
+        try:
+            doc = pymupdf.open(pdf_path)
+            for page_num in range(len(doc)):
+                try:
+                    page = doc.load_page(page_num)
+                    if page is None:
+                        logger.warning(f"Page {page_num + 1} is None in serial processing")
+                        continue
+
+                    text = page.get_text()
+                    if text.strip():
+                        extracted_text_parts.append(text)
+                    else:
+                        # Process immediately in same thread
+                        ocr_text = self._ocr_pdf_page_sync(self, page)
+                        if ocr_text:
+                            extracted_text_parts.append(ocr_text)
+                except Exception as page_e:
+                    logger.error(f"Error processing page {page_num + 1} serially: {page_e}")
+
+            return '\n\n'.join(extracted_text_parts)
+        except Exception as e:
+            logger.error(f"Serial PDF processing failed: {e}")
+            return ""
+
+    # @staticmethod
+    # def _ocr_pdf_page_sync(instance: 'OCRService', page) -> str:
+    #     """
+    #     Synchronously performs OCR on a single PDF page image.
+    #     Requires an instance of OCRService to access its _perform_ocr_sync method.
+    #     """
+    #     if page is None: # Defensive check
+    #         logger.error("Attempted OCR on a None PDF page object.")
+    #         return ""
+    #     try:
+    #         # Render page to a high-resolution pixmap for better OCR
+    #         mat = pymupdf.Matrix(2, 2) # 2x zoom for better quality
+    #         pix = page.get_pixmap(matrix=mat)
+    #
+    #         # Convert pixmap to numpy array via bytes
+    #         img_data = pix.tobytes("png")
+    #         img_array = np.frombuffer(img_data, dtype=np.uint8)
+    #         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    #
+    #         if img is None:
+    #             logger.error(f"Failed to decode image from PDF page: {page.number if hasattr(page, 'number') else 'unknown'}.")
+    #             return ""
+    #
+    #         return instance._perform_ocr_sync(img)
+    #     except Exception as e:
+    #         logger.error(f"Error during OCR of PDF page {page.number if hasattr(page, 'number') else 'unknown'}: {e}")
+    #         return ""
+
     @staticmethod
     def _ocr_pdf_page_sync(instance: 'OCRService', page) -> str:
         """
-        Synchronously perform OCR on a single PDF page image.
-        Takes an instance of OCRService to access its methods/attributes.
+        Synchronously performs OCR on a single PDF page image with improved error handling.
         """
+        if page is None:
+            logger.error("Attempted OCR on a None PDF page object.")
+            return ""
+
         try:
-            # Render page to a high-resolution pixmap for better OCR
-            mat = pymupdf.Matrix(2, 2)  # 2x zoom
-            pix = page.get_pixmap(matrix=mat)
-
-            # Convert pixmap to numpy array via bytes
-            img_data = pix.tobytes("png")
-            img_array = np.frombuffer(img_data, dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-            if img is None:
-                logger.error(f"Failed to decode image from PDF page: {page.number}")
+            # First validate the page exists and is accessible
+            if not hasattr(page, 'get_pixmap'):
+                logger.error(f"Invalid page object encountered: {page}")
                 return ""
 
-            return instance._perform_ocr_sync(img)
+            # Try to get basic page info to validate it's accessible
+            try:
+                _ = page.rect  # This will fail if page is corrupted
+            except Exception as e:
+                logger.error(f"Page validation failed, likely corrupted: {e}")
+                return ""
+
+            # Render page to a high-resolution pixmap for better OCR
+            mat = pymupdf.Matrix(2, 2)  # 2x zoom for better quality
+            try:
+                pix = page.get_pixmap(matrix=mat)
+            except Exception as e:
+                logger.error(f"Failed to render page to pixmap: {e}. Trying with lower quality...")
+                # Fallback to lower quality render
+                try:
+                    pix = page.get_pixmap(matrix=pymupdf.Matrix(1, 1))
+                except Exception as fallback_e:
+                    logger.error(f"Fallback render also failed: {fallback_e}")
+                    return ""
+
+            # Convert pixmap to numpy array via bytes
+            try:
+                img_data = pix.tobytes("png")
+                img_array = np.frombuffer(img_data, dtype=np.uint8)
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+                if img is None:
+                    logger.error("Failed to decode image from PDF page.")
+                    return ""
+
+                return instance._perform_ocr_sync(img)
+            except Exception as e:
+                logger.error(f"Error during image processing: {e}")
+                return ""
+
         except Exception as e:
-            logger.error(f"Error during OCR of PDF page {page.number}: {e}")
+            logger.error(f"Unexpected error during OCR of PDF page: {e}")
             return ""
 
     def _ocr_entire_pdf_sync(self, pdf_path: str) -> str:
         """
         Synchronously performs OCR on an entire PDF by converting each page to an image
-        and processing them in parallel. Used as a fallback.
+        and processing them in parallel. Used as a fallback when direct text extraction fails.
         """
         self._initialize_reader()
 
         extracted_text = []
         try:
             doc = pymupdf.open(pdf_path)
-            # pages = [doc.load_page(page_num) for page_num in range(len(doc))]
-            pages = []
+            valid_pages = []
             for page_num in range(len(doc)):
                 try:
                     page = doc.load_page(page_num)
                     if page is not None:
-                        pages.append(page)
+                        valid_pages.append(page)
                     else:
-                        logger.warning(f"Page {page_num} is None, skipping.")
+                        logger.warning(f"Page {page_num + 1} of {pdf_path} is None, skipping during full OCR fallback.")
                 except Exception as e:
-                    logger.warning(f"Failed to load page {page_num}: {e}")
+                    logger.warning(f"Failed to load page {page_num + 1} for full OCR fallback: {e}. Skipping.")
             doc.close()  # Close doc after loading pages into memory
 
-            logger.info(f"Performing full parallel image-based OCR for {len(pages)} pages.")
+            if not valid_pages:
+                logger.warning(f"No valid pages found in PDF {pdf_path} for full OCR fallback.")
+                return ""
+
+            logger.info(f"Performing full parallel image-based OCR for {len(valid_pages)} pages.")
 
             # Use partial to pass the instance method to map
             ocr_results = self.executor.map(
                 partial(self._ocr_pdf_page_sync, self),
-                pages
+                valid_pages
             )
 
             for text in ocr_results:
@@ -216,104 +375,70 @@ class OCRService:
 
         return '\n\n'.join(extracted_text)
 
-    # def _ocr_entire_pdf_sync(self, pdf_path: str) -> str:
-    #     """
-    #     Synchronously performs OCR on an entire PDF by converting each page to an image
-    #     and processing them in parallel. Used as a fallback.
-    #     """
-    #
-    #     self._initialize_reader()
-    #
-    #     extracted_text = []
-    #     try:
-    #
-    #         doc = pymupdf.open(pdf_path)
-    #         pages = [doc.load_page(page_num) for page_num in range(len(doc))]
-    #         doc.close()
-    #
-    #         logger.info(f"Performing full parallel image-based OCR for {len(pages)} pages.")
-    #
-    #         # Use partial to pass the instance method to map
-    #         ocr_results = self.executor.map(
-    #             partial(self._ocr_pdf_page_sync, self),
-    #             pages
-    #         )
-    #
-    #         for text in ocr_results:
-    #             if text:
-    #                 extracted_text.append(text)
-    #
-    #     except Exception as e:
-    #         logger.error(f"Error during _ocr_entire_pdf_sync for {pdf_path}: {e}")
-    #         return ""
-    #
-    #     return '\n\n'.join(extracted_text)
-
     async def _extract_from_image(self, image_path: str) -> str:
-        """Extract text from image file"""
+        """Extract text from image file."""
         logger.info(f"Extracting text from image: {image_path}")
 
+        # img = Image.open(image_path)
+        # print(pytesseract.image_to_string(img, lang=settings.OCR_TESSERACT_LANGUAGE))
+        cv_img = cv2.imread(image_path)
+        gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.medianBlur(gray, 3)
+        thresh = cv2.adaptiveThreshold(blur, 255,
+                                       cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY, 11, 2)
+
+        text = pytesseract.image_to_string(thresh, config=settings.OCR_TESSERACT_CONFIG,
+                                           lang=settings.OCR_TESSERACT_LANGUAGE)
+        print(text.encode('utf-8', 'replace').decode())
+
+
         def _process_image_sync():
-            # Load and preprocess image
+            return "XX"
             img = cv2.imread(image_path)
             if img is None:
                 raise ValueError(f"Could not load image: {image_path}")
 
-            # Preprocess image for better OCR
             img = self._preprocess_image(img)
             return self._perform_ocr_sync(img)
 
-        # return await asyncio.get_event_loop().run_in_executor(
-        #     self.executor, _process_image
-        # )
         return await asyncio.to_thread(_process_image_sync)
 
     def _preprocess_image(self, img: np.ndarray) -> np.ndarray:
-        """Preprocess image for better OCR accuracy"""
-        # Convert to grayscale if not already
+        """Preprocesses image for better OCR accuracy."""
         if len(img.shape) == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # Apply Gaussian blur for initial noise reduction. (3,3) is a good balance.
-        # img = cv2.GaussianBlur(img, (1, 1), 0) # Default
         img = cv2.GaussianBlur(img, (3, 3), 0)
 
-        # Adaptive Thresholding: More robust than simple Otsu for varying lighting
-        # Block size (11) must be odd. C (2) is a constant subtracted from the mean.
-        # img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1] # Default
         img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                     cv2.THRESH_BINARY, 11, 2)
 
-        # Morphological operations to clean up the image (e.g., close small gaps)
-        # kernel = np.ones((1, 1), np.uint8) # Default
-        kernel = np.ones((2, 2), np.uint8)  # Slightly larger kernel for better effect
-        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)  # Default
-        img = cv2.medianBlur(img, 3)  # Additional blur to reduce salt-and-pepper noise
-
-        # Optional: Skew correction can be added here if documents are often rotated.
-        # This would require more complex image analysis (e.g., Hough lines).
+        kernel = np.ones((2, 2), np.uint8)
+        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
+        img = cv2.medianBlur(img, 3)
 
         return img
 
     def _perform_ocr_sync(self, img: np.ndarray) -> str:
         """Synchronously performs OCR on a preprocessed image."""
         self._initialize_reader()
+        # with MemoryGuard(max_memory_usage=0.85):  # 85% system memory
 
         try:
-            # Perform OCR
-            results = self.reader.readtext(img, detail=1)  # detail=1 gives bbox, text, confidence
+            if settings.OCR_ENGINE == "tesseract":
+                return self._perform_tesseract_ocr(img)
 
-            # Extract text with confidence filtering
+            results = self.reader.readtext(img, detail=1)
+
             extracted_text = []
             for (bbox, text, confidence) in results:
-                # Filter out low-confidence results to reduce noise
-                if confidence > 0.4:  # Filter out low-confidence results # Default = 0.5
+                if confidence > 0.4:
                     extracted_text.append(text)
 
             raw_text = ' '.join(extracted_text)
             logger.debug(f"Raw OCR text before correction: {raw_text}")
 
-            # Apply spell correction conditionally
             if settings.OCR_ENABLE_SPELL_CORRECTION:
                 cleaned_text = self.correct_thai_text(raw_text)
                 logger.debug(f"Corrected text: {cleaned_text}")
@@ -326,25 +451,24 @@ class OCRService:
             logger.error(f"OCR processing failed: {e}")
             return ""
 
-    # async def perform_ocr(self, img: np.ndarray, preprocess: bool = True) -> str:
-    #     """
-    #     Async OCR on an image array.
-    #     Runs heavy computation in a thread pool for true async compatibility.
-    #     """
-    #     loop = asyncio.get_running_loop()
-    #     return await loop.run_in_executor(
-    #         self.executor,
-    #         self._perform_ocr_sync,
-    #         img,
-    #         preprocess
-    #     )
+    def _perform_tesseract_ocr(self, img: np.ndarray) -> str:
+        config = "-l tha+eng --psm 6"
+        try:
+            text = pytesseract.image_to_string(img, config=config)
+            logger.debug(f"Tesseract OCR output: {text}")
+            if settings.OCR_ENABLE_SPELL_CORRECTION:
+                return self.correct_thai_text(text)
+            return text
+        except Exception as e:
+            logger.error(f"Tesseract OCR failed: {e}")
+            return ""
 
     async def _read_text_file(self, file_path: str) -> str:
         """Reads text from a plain text file asynchronously."""
         logger.info(f"Reading text file: {file_path}")
 
         def _read_file_sync():
-            encodings = ['utf-8', 'utf-16', 'cp874', 'latin1']  # cp874 for Thai Windows encoding
+            encodings = ['utf-8', 'utf-16', 'cp874', 'latin1']
 
             for encoding in encodings:
                 try:
@@ -359,9 +483,6 @@ class OCRService:
 
             raise ValueError(f"Could not decode file {file_path} with any supported encoding")
 
-        # return await asyncio.get_event_loop().run_in_executor(
-        #     self.executor, _read_file_sync
-        # )
         return await asyncio.to_thread(_read_file_sync)
 
     async def extract_with_confidence(self, file_path: str) -> Tuple[str, List[float]]:
@@ -377,67 +498,29 @@ class OCRService:
                     raise ValueError(f"Could not load image for confidence extraction: {file_path}")
                 img = self._preprocess_image(img)
 
-                # results = self.reader.readtext(img)
                 results = self.reader.readtext(img, detail=1)
 
                 texts = []
                 confidences = []
 
-                # for (bbox, text, confidence) in results:
-                #     texts.append(text)
-                #     confidences.append(confidence)
                 for (bbox, text, confidence) in results:
                     texts.append(text)
-                    confidences.append(float(confidence))  # Ensure confidence is float
+                    confidences.append(float(confidence))
 
                 return ' '.join(texts), confidences
 
-            # return await asyncio.get_event_loop().run_in_executor(
-            #     self.executor, _process_with_confidence
-            # )
             return await asyncio.to_thread(_process_with_confidence_sync)
         else:
-            # For PDF and text files, extract text but return dummy confidence.
-            # More granular confidence for these types would require parsing the text
-            # and assigning a confidence score to each segment.
             text = await self.extract_text(file_path)
             logger.info(f"Extracting with confidence for non-image file. Returning text with dummy confidence.")
-
-            print("Extracted Text:")
-            print(text)
-            return text, [1.0] if text else []  # Return [1.0] only if text is not empty
+            return text, [1.0] if text else []
 
     def cleanup(self):
         """Clean up resources and shut down the ThreadPoolExecutor."""
-        # if self.executor:
-        #     self.executor.shutdown(wait=False)
-        #     self.executor = None
-        # self.reader = None
         if self.executor:
             logger.info("Shutting down ThreadPoolExecutor...")
-            self.executor.shutdown(wait=True)  # Wait for all tasks to complete
+            self.executor.shutdown(wait=True)
             self.executor = None
             logger.info("ThreadPoolExecutor shut down.")
         self.reader = None
         logger.info("EasyOCR reader reset.")
-
-    # def correct_thai_text(self, text: str) -> str:
-    #     """
-    #     Correct Thai text using pythainlp spell correction.
-    #     This function uses the pythainlp library to correct common spelling mistakes in Thai text.
-    #
-    #     Args:
-    #         text (str): The input Thai text to be corrected.
-    #     Returns:
-    #         str: The corrected Thai text.
-    #     -----------
-    #     Example:
-    #         >>> ocr_service = OCRService()
-    #         >>> corrected_text = ocr_service.correct_thai_text("สวัสดีครับ")
-    #         >>> print(corrected_text)
-    #         "สวัสดีครับ"
-    #     -----------
-    #     """
-    #
-    #     tokens = text.split()
-    #     return ' '.join([correct(token) for token in tokens])
